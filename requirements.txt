@@ -1,0 +1,15 @@
+torch>=2.3.0
+torchvision>=0.18.0
+pytorch-lightning>=2.2.0
+lightning>=2.2.0
+wandb
+lpips
+facenet-pytorch
+timm
+opencv-python-headless
+Pillow
+tqdm
+pyyaml
+einops
+webdataset
+gradio

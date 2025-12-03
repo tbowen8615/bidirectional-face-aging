@@ -1,0 +1,37 @@
+# ───────────────────────────────
+#  BIG / PRIVATE / GENERATED STUFF
+# ───────────────────────────────
+# All actual images (you already have 2000+ PNGs → never commit them)
+data/young/
+data/old/
+
+# Any leftover thumbnails or zip files (just in case)
+thumbnails128x128/
+thumbnails256x256/
+*.zip
+
+# Trained models & logs
+*.ckpt
+*.pth
+lightning_logs/
+wandb/
+checkpoints/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+venv/
+
+# VS Code / PyCharm / Jupyter junk
+.vscode/
+.idea/
+*.ipynb_checkpoints
+.DS_Store
+
+# Optional: if you ever add results images for demo
+results/*.png
+results/*.jpg
+!results/readme_example.png   # ← you can keep one example result if you want
