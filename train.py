@@ -1,4 +1,3 @@
-# train.py
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
@@ -48,6 +47,9 @@ class BidirectionalAgingGAN(pl.LightningModule):
         super().__init__()
         self.cfg = DictNamespace(cfg) if isinstance(cfg, dict) else cfg
         self.save_hyperparameters(cfg)
+        
+        # Enable manual optimization for multiple optimizers
+        self.automatic_optimization = False
 
         self.G_y2o = Generator()   # young → old
         self.G_o2y = Generator()   # old → young
@@ -72,68 +74,81 @@ class BidirectionalAgingGAN(pl.LightningModule):
         fake_feat = self.arcface((cycled + 1) / 2)
         return 1 - F.cosine_similarity(real_feat, fake_feat).mean()
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def training_step(self, batch, batch_idx):
         young = batch["young"]
         old = batch["old"]
+        
+        # Get optimizers
+        opt_g, opt_dy, opt_do = self.optimizers()
 
-        # Generators
-        if optimizer_idx == 0:
-            # Forward translations
-            fake_old = self.G_y2o(young)
-            fake_young = self.G_o2y(old)
+        # ========== Train Generators ==========
+        opt_g.zero_grad()
+        
+        # Forward translations
+        fake_old = self.G_y2o(young)
+        fake_young = self.G_o2y(old)
 
-            # Cycle reconstructions
-            rec_young = self.G_o2y(fake_old)
-            rec_old = self.G_y2o(fake_young)
+        # Cycle reconstructions
+        rec_young = self.G_o2y(fake_old)
+        rec_old = self.G_y2o(fake_young)
 
-            # Deep cycles (your core contribution)
-            deep_young = self.G_o2y(self.G_y2o(rec_young))
-            deep_old = self.G_y2o(self.G_o2y(rec_old))
+        # Deep cycles (your core contribution)
+        deep_young = self.G_o2y(self.G_y2o(rec_young))
+        deep_old = self.G_y2o(self.G_o2y(rec_old))
 
-            # Adversarial loss
-            g_loss_adv = self.adversarial_loss(self.D_old(fake_old), True) + \
-                         self.adversarial_loss(self.D_young(fake_young), True)
+        # Adversarial loss
+        g_loss_adv = self.adversarial_loss(self.D_old(fake_old), True) + \
+                     self.adversarial_loss(self.D_young(fake_young), True)
 
-            # Standard cycle
-            cycle_loss = F.l1_loss(rec_young, young) + F.l1_loss(rec_old, old)
+        # Standard cycle
+        cycle_loss = F.l1_loss(rec_young, young) + F.l1_loss(rec_old, old)
 
-            # Deep cycle (the key idea from the slides)
-            deep_cycle_loss = F.l1_loss(deep_young, young) + F.l1_loss(deep_old, old)
+        # Deep cycle (the key idea from the slides)
+        deep_cycle_loss = F.l1_loss(deep_young, young) + F.l1_loss(deep_old, old)
 
-            # Identity preservation
-            id_loss = self.identity_loss(young, rec_young) + self.identity_loss(old, rec_old)
+        # Identity preservation
+        id_loss = self.identity_loss(young, rec_young) + self.identity_loss(old, rec_old)
 
-            # Perceptual
-            perceptual = self.lpips_loss(rec_young, young).mean() + \
-                         self.lpips_loss(rec_old, old).mean()
+        # Perceptual
+        perceptual = self.lpips_loss(rec_young, young).mean() + \
+                     self.lpips_loss(rec_old, old).mean()
 
-            g_loss = g_loss_adv + \
-                     self.cfg.training.lambda_cycle * cycle_loss + \
-                     self.cfg.training.lambda_deep_cycle * deep_cycle_loss + \
-                     self.cfg.training.lambda_identity * id_loss + \
-                     self.cfg.training.lambda_lpips * perceptual
+        g_loss = g_loss_adv + \
+                 self.cfg.training.lambda_cycle * cycle_loss + \
+                 self.cfg.training.lambda_deep_cycle * deep_cycle_loss + \
+                 self.cfg.training.lambda_identity * id_loss + \
+                 self.cfg.training.lambda_lpips * perceptual
 
-            self.log("g_loss", g_loss, prog_bar=True)
-            self.log("cycle_loss", cycle_loss)
-            self.log("deep_cycle_loss", deep_cycle_loss)
-            self.log("id_loss", id_loss)
-            return g_loss
+        self.manual_backward(g_loss)
+        opt_g.step()
 
-        # Discriminator Young
-        if optimizer_idx == 1:
-            real_loss = self.adversarial_loss(self.D_young(young), True)
-            fake_loss = self.adversarial_loss(self.D_young(self.G_o2y(old).detach()), False)
-            d_young_loss = (real_loss + fake_loss) / 2
-            self.log("d_young_loss", d_young_loss)
-            return d_young_loss
+        # ========== Train Discriminator Young ==========
+        opt_dy.zero_grad()
+        
+        real_loss = self.adversarial_loss(self.D_young(young), True)
+        fake_loss = self.adversarial_loss(self.D_young(self.G_o2y(old).detach()), False)
+        d_young_loss = (real_loss + fake_loss) / 2
+        
+        self.manual_backward(d_young_loss)
+        opt_dy.step()
 
-        # Discriminator Old
-        if optimizer_idx == 2:
-            real_loss = self.adversarial_loss(self.D_old(old), True)
-            fake_loss = self.adversarial_loss(self.D_old(self.G_y2o(young).detach()), False)
-            d_old_loss = (real_loss + fake_loss) / 2
-            self.log("d_old_loss", d_old_loss)
-            return d_old_loss
+        # ========== Train Discriminator Old ==========
+        opt_do.zero_grad()
+        
+        real_loss = self.adversarial_loss(self.D_old(old), True)
+        fake_loss = self.adversarial_loss(self.D_old(self.G_y2o(young).detach()), False)
+        d_old_loss = (real_loss + fake_loss) / 2
+        
+        self.manual_backward(d_old_loss)
+        opt_do.step()
+
+        # Logging
+        self.log("g_loss", g_loss, prog_bar=True)
+        self.log("cycle_loss", cycle_loss)
+        self.log("deep_cycle_loss", deep_cycle_loss)
+        self.log("id_loss", id_loss)
+        self.log("d_young_loss", d_young_loss)
+        self.log("d_old_loss", d_old_loss)
 
     def configure_optimizers(self):
         lr = self.cfg.training.lr
@@ -141,7 +156,7 @@ class BidirectionalAgingGAN(pl.LightningModule):
         opt_g = torch.optim.Adam(list(self.G_y2o.parameters()) + list(self.G_o2y.parameters()), lr=lr, betas=(b1, b2))
         opt_dy = torch.optim.Adam(self.D_young.parameters(), lr=lr, betas=(b1, b2))
         opt_do = torch.optim.Adam(self.D_old.parameters(), lr=lr, betas=(b1, b2))
-        return [opt_g, opt_dy, opt_do], []
+        return [opt_g, opt_dy, opt_do]
 
     def train_dataloader(self):
         transform = T.Compose([
@@ -156,6 +171,9 @@ class BidirectionalAgingGAN(pl.LightningModule):
 
 # --------------------- Main ---------------------
 if __name__ == "__main__":
+    # Optimize for Tensor Cores
+    torch.set_float32_matmul_precision('medium')
+    
     with open("config.yaml") as f:
         cfg = yaml.safe_load(f)
 
