@@ -14,6 +14,16 @@ from models.generator import Generator
 from models.discriminator import Discriminator
 import os
 
+# --------------------- Config Helper ---------------------
+class DictNamespace:
+    """Convert nested dict to object with attribute access"""
+    def __init__(self, d):
+        for key, value in d.items():
+            if isinstance(value, dict):
+                setattr(self, key, DictNamespace(value))
+            else:
+                setattr(self, key, value)
+
 # --------------------- Dataset ---------------------
 class YoungOldDataset(Dataset):
     def __init__(self, young_dir, old_dir, transform=None):
@@ -36,7 +46,7 @@ class YoungOldDataset(Dataset):
 class BidirectionalAgingGAN(pl.LightningModule):
     def __init__(self, cfg):
         super().__init__()
-        self.cfg = cfg
+        self.cfg = DictNamespace(cfg) if isinstance(cfg, dict) else cfg
         self.save_hyperparameters(cfg)
 
         self.G_y2o = Generator()   # young → old
