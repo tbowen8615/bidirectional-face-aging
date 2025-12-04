@@ -1,11 +1,9 @@
-# ───────────────────────────────
-#  BIG / PRIVATE / GENERATED STUFF
-# ───────────────────────────────
-# All actual images (you already have 2000+ PNGs → never commit them)
+
+# images
 data/young/
 data/old/
 
-# Any leftover thumbnails or zip files (just in case)
+# leftover thumbnails or zip files
 thumbnails128x128/
 thumbnails256x256/
 *.zip
@@ -31,7 +29,6 @@ venv/
 *.ipynb_checkpoints
 .DS_Store
 
-# Optional: if you ever add results images for demo
+# Optional:
 results/*.png
 results/*.jpg
-!results/readme_example.png   # ← you can keep one example result if you want
